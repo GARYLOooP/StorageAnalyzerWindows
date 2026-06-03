@@ -1,4 +1,4 @@
-# storage-analyzer-windows
+# StorageAnalyzerWindows
 
 > **上游项目：** [khazix-skills/storage-analyzer](https://github.com/KKKKhazix/khazix-skills/tree/main/storage-analyzer) by [数字生命卡兹克](https://github.com/KKKKhazix)
 > — 原始跨平台（macOS / Windows）版本，来自 KKKKhazix 开源的 AI Skills 合集。
