@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>存储空间分析</title>
+<style>
+  :root {
+    --ink: #1a1a2e;
+    --sub: #6b7280;
+    --muted: #9ca3af;
+    --line: #e5e7eb;
+    --surface: #f9fafb;
+    --bg: #ffffff;
+    --green: #059669;
+    --green-bg: #ecfdf5;
+    --amber: #d97706;
+    --amber-bg: #fffbeb;
+    --red: #dc2626;
+    --red-bg: #fef2f2;
+    --blue: #2563eb;
+    --blue-bg: #eff6ff;
+    --radius-sm: 6px;
+    --radius: 12px;
+    --radius-lg: 16px;
+    --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "SF Pro SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: #f3f4f6; color: var(--ink); line-height: 1.6;
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+  }
+  .app { display: flex; min-height: 100vh; }
+  .sidebar {
+    width: 260px; background: var(--bg); border-right: 1px solid var(--line);
+    padding: 28px 0; position: sticky; top: 0; height: 100vh;
+    display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .main { flex: 1; padding: 28px 36px 60px; max-width: 960px; }
+  .sb-brand { padding: 0 24px 24px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+  .sb-brand h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.3px; }
+  .sb-brand span { font-size: 12px; color: var(--muted); display: block; margin-top: 4px; }
+  .sb-nav { flex: 1; padding: 8px 12px; }
+  .sb-nav a {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-radius: var(--radius-sm); font-size: 14px; color: var(--sub);
+    text-decoration: none; transition: all var(--transition); margin-bottom: 2px;
+  }
+  .sb-nav a:hover { background: var(--surface); color: var(--ink); }
+  .sb-nav a.active { background: var(--blue-bg); color: var(--blue); font-weight: 500; }
+  .sb-nav .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .sb-nav .count { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .sb-footer { padding: 16px 24px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); }
+  .page-header { margin-bottom: 28px; }
+  .page-header h2 { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; }
+  .page-header p { color: var(--sub); font-size: 14px; margin-top: 4px; }
+  .disk-card {
+    background: var(--bg); border-radius: var(--radius-lg);
+    padding: 24px 28px; margin-bottom: 28px;
+    border: 1px solid var(--line);
+  }
+  .disk-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+  .disk-label { font-size: 13px; color: var(--sub); font-weight: 500; }
+  .disk-label strong { color: var(--ink); font-size: 15px; }
+  .disk-meter-bar {
+    height: 20px; border-radius: 10px; background: var(--line); overflow: hidden;
+    display: flex;
+  }
+  .disk-meter-bar span { display: block; height: 100%; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+  .disk-meter-bar span + span { border-left: 2px solid #fff; }
+  .disk-stats { display: flex; gap: 32px; margin-top: 12px; }
+  .disk-stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .disk-stat-value { font-size: 18px; font-weight: 600; }
+  .disk-legend { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; }
+  .disk-legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--sub); }
+  .disk-legend-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .tier-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
+  .tier-card {
+    background: var(--bg); border-radius: var(--radius);
+    padding: 20px; border: 1px solid var(--line);
+    cursor: pointer; transition: all var(--transition);
+  }
+  .tier-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+  .tier-card .tier-icon { font-size: 24px; margin-bottom: 8px; }
+  .tier-card .tier-count { font-size: 12px; color: var(--muted); }
+  .tier-card .tier-size { font-size: 22px; font-weight: 600; margin: 4px 0; }
+  .tier-card .tier-action { font-size: 12px; color: var(--sub); margin-top: 8px; }
+  .section { margin-bottom: 32px; }
+  .section-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .section-header h3 { font-size: 16px; font-weight: 600; }
+  .section-header .badge {
+    font-size: 12px; padding: 2px 10px; border-radius: 20px; font-weight: 500;
+  }
+  .section-header .actions { margin-left: auto; display: flex; gap: 8px; }
+  .item-card {
+    background: var(--bg); border-radius: var(--radius);
+    border: 1px solid var(--line); margin-bottom: 10px;
+    overflow: hidden; transition: all var(--transition);
+  }
+  .item-card.green { border-left: 3px solid var(--green); }
+  .item-card.amber { border-left: 3px solid var(--amber); }
+  .item-card.red { border-left: 3px solid var(--red); }
+  .item-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+  .item-card.cleaned { opacity: 0.55; }
+  .item-card.cleaned .item-title { text-decoration: line-through; }
+  .item-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px; cursor: pointer; user-select: none;
+  }
+  .item-head:hover { background: var(--surface); }
+  .item-icon { font-size: 18px; flex-shrink: 0; opacity: 0.7; }
+  .item-info { flex: 1; min-width: 0; }
+  .item-title { font-size: 14px; font-weight: 500; }
+  .item-path {
+    font-family: "SF Mono", "Cascadia Code", ui-monospace, monospace;
+    font-size: 11px; color: var(--muted); margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .item-size { font-weight: 600; font-size: 14px; white-space: nowrap; flex-shrink: 0; }
+  .item-chevron {
+    font-size: 10px; color: var(--muted); flex-shrink: 0;
+    transition: transform var(--transition);
+  }
+  .item-card.open .item-chevron { transform: rotate(90deg); }
+  .item-body { display: none; padding: 0 20px 18px; }
+  .item-card.open .item-body { display: block; }
+  .item-field { margin-top: 12px; }
+  .item-field-label { font-size: 11px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .item-field-value { font-size: 13px; color: var(--ink); line-height: 1.7; }
+  .item-risk {
+    background: var(--red-bg); border-radius: var(--radius-sm);
+    padding: 10px 14px; font-size: 13px; color: var(--red);
+    margin-top: 12px; line-height: 1.6;
+  }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 16px; border-radius: var(--radius-sm);
+    font-size: 13px; font-weight: 500; border: 1px solid var(--line);
+    background: var(--bg); color: var(--ink); cursor: pointer;
+    transition: all var(--transition); text-decoration: none;
+  }
+  .btn:hover { background: var(--surface); border-color: #d1d5db; }
+  .btn:active { transform: scale(0.97); }
+  .btn.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .btn.primary:hover { background: #1d4ed8; }
+  .btn.success { background: var(--green-bg); color: var(--green); border-color: #a7f3d0; }
+  .btn.success:hover { background: #d1fae5; }
+  .btn.danger { background: var(--red-bg); color: var(--red); border-color: #fecaca; }
+  .btn.danger:hover { background: #fee2e2; }
+  .btn.amber { background: var(--amber-bg); color: var(--amber); border-color: #fde68a; }
+  .btn.amber:hover { background: #fef3c7; }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .status-ok { color: var(--green); font-size: 12px; font-weight: 500; }
+  .status-err { color: var(--red); font-size: 12px; }
+  .summary-card {
+    background: var(--bg); border-radius: var(--radius-lg);
+    padding: 24px 28px; border: 1px solid var(--line);
+  }
+  .summary-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+  .summary-card ol { padding-left: 20px; }
+  .summary-card li { margin: 8px 0; font-size: 14px; line-height: 1.7; }
+  .summary-card .long-term { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .summary-card .long-term h4 { font-size: 13px; color: var(--sub); margin-bottom: 8px; }
+  .summary-card .long-term ul { padding-left: 20px; list-style: disc; }
+  .summary-card .long-term li { font-size: 13px; color: var(--sub); margin: 4px 0; }
+  .summary-card .long-term code {
+    font-family: "SF Mono", "Cascadia Code", ui-monospace, monospace;
+    font-size: 12px; background: var(--surface); padding: 1px 5px; border-radius: 3px;
+    border: 1px solid var(--line);
+  }
+  .cmd-block {
+    background: #1e293b; border-radius: var(--radius-sm);
+    padding: 12px 16px; margin-top: 4px; position: relative;
+    font-family: "SF Mono", "Cascadia Code", ui-monospace, monospace;
+    font-size: 12px; color: #e2e8f0; line-height: 1.7;
+    overflow-x: auto; white-space: pre;
+  }
+  .cmd-block .cmd-copy {
+    position: absolute; top: 8px; right: 8px;
+    background: #334155; border: none; border-radius: 4px;
+    padding: 3px 10px; font-size: 11px; color: #cbd5e1;
+    cursor: pointer; font-family: inherit;
+  }
+  .cmd-block .cmd-copy:hover { background: #475569; color: #fff; }
+  .cmd-label { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  .action-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  @media (max-width: 768px) {
+    .sidebar { display: none; }
+    .main { padding: 20px 16px 40px; }
+    .tier-grid { grid-template-columns: 1fr; }
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .item-card { animation: fadeInUp 0.3s ease backwards; }
+  .item-card:nth-child(1) { animation-delay: 0.02s; }
+  .item-card:nth-child(2) { animation-delay: 0.04s; }
+  .item-card:nth-child(3) { animation-delay: 0.06s; }
+  .item-card:nth-child(4) { animation-delay: 0.08s; }
+  .item-card:nth-child(5) { animation-delay: 0.10s; }
+  .item-card:nth-child(6) { animation-delay: 0.12s; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <h1>存储空间分析</h1>
+      <span id="sb-meta"></span>
+    </div>
+    <nav class="sb-nav">
+      <a href="#overview" class="active" data-section="overview">&#9632; 总览</a>
+      <a href="#green" data-section="green"><span class="dot" style="background:var(--green)"></span> 可自动清理 <span class="count" id="nav-green-count"></span></a>
+      <a href="#amber" data-section="amber"><span class="dot" style="background:var(--amber)"></span> 需人工判断 <span class="count" id="nav-amber-count"></span></a>
+      <a href="#red" data-section="red"><span class="dot" style="background:var(--red)"></span> 建议卸载 <span class="count" id="nav-red-count"></span></a>
+      <a href="#summary" data-section="summary">&#9733; 总结建议</a>
+    </nav>
+    <div class="sb-footer">storage-analyzer · 只读分析</div>
+  </aside>
+  <main class="main" id="app-root"></main>
+</div>
+
+<script>
+const DATA = __REPORT_DATA__;
+const DELETE = __DELETE_CONFIG__; // null=static readonly; {token,endpoint}=server mode with one-click actions
+const FM = (DATA.system && /win/i.test(DATA.system.os||'')) ? '资源管理器' : '访达';
+
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function parseGB(s) {
+  var m = String(s||'').match(/([\d.]+)\s*(TB|GB|MB)/i);
+  if (!m) return 0;
+  var v = parseFloat(m[1]);
+  if (m[2].toUpperCase()==='TB') v*=1024;
+  else if (m[2].toUpperCase()==='MB') v/=1024;
+  return v;
+}
+
+function renderDiskOverview() {
+  var s = DATA.system;
+  var sm = DATA.summary;
+  var total = parseGB(s.disk_total) || 1;
+  var used = parseGB(s.disk_used);
+  var free = parseGB(s.disk_free);
+  var ts = sm ? sm.tier_stats : null;
+  var g = ts ? parseGB(ts.green) : 0;
+  var y = ts ? parseGB(ts.yellow) : 0;
+  var r = ts ? parseGB(ts.red) : 0;
+  var other = Math.max(0, used - g - y - r);
+
+  function seg(v, bg, title) {
+    return v>0 ? '<span style="background:'+bg+';width:'+(v/total*100).toFixed(2)+'%" title="'+title+'：约 '+v.toFixed(1)+' GB"></span>' : '';
+  }
+
+  var otherDisks = (s.disks||[]).filter(function(d){return d.name!==s.disk_name});
+  var otherHtml = otherDisks.map(function(d){
+    return '<div style="margin-top:12px;font-size:13px;color:var(--sub)"><span style="font-weight:600;color:var(--ink)">'+esc(d.name)+'</span> &nbsp;'+esc(d.used)+' / '+esc(d.total)+' &middot; 可用 '+esc(d.free)+'</div>';
+  }).join('');
+
+  var freeColor = free<20 ? 'var(--red)' : 'var(--ink)';
+
+  return '<div class="disk-card" id="overview">'+
+    '<div class="disk-header"><div><div class="disk-label"><strong>系统盘 '+esc(s.disk_name)+'</strong> &middot; '+esc(s.os)+' ('+esc(s.build)+')</div></div>'+
+    '<div style="text-align:right"><span style="font-size:13px;color:var(--sub)">'+esc(s.user)+'@'+esc(s.arch)+'</span></div></div>'+
+    '<div class="disk-meter-bar">'+seg(g,'var(--green)','可自动清理')+seg(y,'var(--amber)','需人工判断')+seg(r,'var(--red)','建议卸载')+seg(other,'#93c5fd','系统及其他')+'</div>'+
+    '<div class="disk-legend">'+
+      '<div class="disk-legend-item"><span class="disk-legend-swatch" style="background:var(--green)"></span> 可自动清理 '+(g>0?'约 '+g.toFixed(1)+' GB':'')+'</div>'+
+      '<div class="disk-legend-item"><span class="disk-legend-swatch" style="background:var(--amber)"></span> 需人工判断 '+(y>0?'约 '+y.toFixed(1)+' GB':'')+'</div>'+
+      '<div class="disk-legend-item"><span class="disk-legend-swatch" style="background:var(--red)"></span> 建议卸载 '+(r>0?'约 '+r.toFixed(1)+' GB':'')+'</div>'+
+      '<div class="disk-legend-item"><span class="disk-legend-swatch" style="background:#93c5fd"></span> 系统及其他 '+(other>0?'约 '+other.toFixed(1)+' GB':'')+'</div>'+
+    '</div>'+
+    '<div class="disk-stats">'+
+      '<div><div class="disk-stat-label">总容量</div><div class="disk-stat-value">'+esc(s.disk_total)+'</div></div>'+
+      '<div><div class="disk-stat-label">已用</div><div class="disk-stat-value">'+esc(s.disk_used)+'</div></div>'+
+      '<div><div class="disk-stat-label" style="color:var(--red)">剩余</div><div class="disk-stat-value" style="color:'+freeColor+'">'+esc(s.disk_free)+'</div></div>'+
+    '</div>'+otherHtml+'</div>';
+}
+
+function renderTierCards() {
+  var sm = DATA.summary;
+  var ts = sm ? sm.tier_stats : {};
+  var greenN = DATA.green.length, amberN = DATA.yellow.length, redN = DATA.red.length;
+  var tiers = [
+    {cls:'green',icon:'&#9678;',label:'可自动清理',n:greenN,size:ts.green,desc:'零风险即刻释放'},
+    {cls:'amber',icon:'&#9671;',label:'需人工判断',n:amberN,size:ts.yellow,desc:'需逐项评估后处理'},
+    {cls:'red',icon:'&#9632;',label:'建议卸载',n:redN,size:ts.red,desc:'走正规卸载流程'}
+  ];
+  return '<div class="tier-grid">'+tiers.map(function(t){
+    return '<div class="tier-card" style="border-left:3px solid var(--'+(t.cls==='amber'?'amber':t.cls)+')" onclick="document.querySelector(\'a[data-section='+t.cls+']\').click()">'+
+      '<div class="tier-icon" style="color:var(--'+(t.cls==='amber'?'amber':t.cls)+')">'+t.icon+'</div>'+
+      '<div class="tier-count">'+t.n+' 项</div>'+
+      '<div class="tier-size">'+esc(t.size)+'</div>'+
+      '<div class="tier-action">'+t.desc+'</div></div>';
+  }).join('')+'</div>';
+}
+
+function renderPriority() {
+  var sm = DATA.summary;
+  if (!sm || !sm.priority) return '';
+  return '<div class="summary-card" style="margin-bottom:28px">'+
+    '<h3>执行建议</h3>'+
+    '<p style="font-size:14px;color:var(--sub);margin-bottom:12px">'+esc(sm.overview)+'</p>'+
+    '<ol>'+sm.priority.map(function(p){return '<li>'+esc(p)+'</li>';}).join('')+'</ol></div>';
+}
+
+function renderSection(cls, label, items, renderItem) {
+  var tier = cls==='amber'?'amber':cls;
+  var colors = {green:{bg:'var(--green-bg)',c:'var(--green)'},amber:{bg:'var(--amber-bg)',c:'var(--amber)'},red:{bg:'var(--red-bg)',c:'var(--red)'}};
+  var cc = colors[tier];
+  var batchBtn = tier==='green' ? '<div class="actions"><button class="btn btn-success btn-sm" onclick="batchGreenAll()">全部移废纸篓</button></div>' : '';
+  return '<div class="section" id="'+tier+'">'+
+    '<div class="section-header"><h3>'+label+'</h3>'+
+    '<span class="badge" style="background:'+cc.bg+';color:'+cc.c+'">'+items.length+' 项</span>'+batchBtn+'</div>'+
+    items.map(function(it,i){return renderItem(it,i);}).join('')+'</div>';
+}
+
+function renderGreenItem(it, idx) {
+  var cmds = (it.commands||[]).map(function(c){
+    return '<div class="cmd-label">'+esc(c.label)+'</div><div class="cmd-block">'+copyBtn(c.cmd)+esc(c.cmd)+'</div>';
+  }).join('');
+  var procs = (it.kill_processes||[]).length
+    ? '<div class="item-field"><div class="item-field-label">清理前需关闭</div><div class="item-field-value">'+it.kill_processes.map(function(p){return esc(p);}).join('、')+'</div></div>'
+    : '';
+
+  return '<div class="item-card green" id="green-'+idx+'">'+
+    '<div class="item-head" onclick="this.parentElement.classList.toggle(\'open\')">'+
+    '<span class="item-icon">&#9678;</span>'+
+    '<div class="item-info"><div class="item-title">'+esc(it.name)+'</div><div class="item-path">'+esc(it.path)+'</div></div>'+
+    '<span class="item-size">'+esc(it.size_estimate)+'</span>'+
+    '<span class="item-chevron">&#9654;</span></div>'+
+    '<div class="item-body">'+procs+
+    '<div class="item-field"><div class="item-field-label">清理命令</div>'+cmds+'</div>'+
+    (it.trash_paths&&it.trash_paths.length?renderGreenActions(it):'')+
+    '</div></div>';
+}
+
+function renderGreenActions(it) {
+  if (!DELETE || !it.trash_paths || !it.trash_paths.length) return '';
+  var payload = btoa(unescape(encodeURIComponent(JSON.stringify(it.trash_paths))));
+  return '<div class="action-row" data-paths="'+payload+'">'+
+    '<button class="btn btn-success btn-sm" onclick="event.stopPropagation();doDelete(this,\'trash\')">移到废纸篓</button>'+
+    '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();doDelete(this,\'rm\')">直接删除</button>'+
+    '<span class="del-status"></span></div>';
+}
+
+function renderAmberItem(it, idx) {
+  return '<div class="item-card amber" id="amber-'+idx+'">'+
+    '<div class="item-head" onclick="this.parentElement.classList.toggle(\'open\')">'+
+    '<span class="item-icon">&#9671;</span>'+
+    '<div class="item-info"><div class="item-title">'+esc(it.name)+'</div><div class="item-path">'+esc(it.path)+'</div></div>'+
+    '<span class="item-size">'+esc(it.size)+'</span>'+
+    '<span class="item-chevron">&#9654;</span></div>'+
+    '<div class="item-body">'+
+    '<div class="item-field"><div class="item-field-label">内容画像</div><div class="item-field-value">'+esc(it.content_profile)+'</div></div>'+
+    '<div class="item-field"><div class="item-field-label">为什么需要人工判断</div><div class="item-field-value">'+esc(it.why_manual)+'</div></div>'+
+    '<div class="item-field"><div class="item-field-label">处置路径</div><div class="item-field-value">'+esc(it.disposal)+'</div></div>'+
+    '<div class="item-risk">'+esc(it.risk)+'</div>'+
+    '</div></div>';
+}
+
+function renderRedItem(it, idx) {
+  return '<div class="item-card red" id="red-'+idx+'">'+
+    '<div class="item-head" onclick="this.parentElement.classList.toggle(\'open\')">'+
+    '<span class="item-icon">&#9632;</span>'+
+    '<div class="item-info"><div class="item-title">'+esc(it.name)+'</div><div class="item-path">'+esc(it.path)+'</div></div>'+
+    '<span class="item-size">'+esc(it.size)+'</span>'+
+    '<span class="item-chevron">&#9654;</span></div>'+
+    '<div class="item-body">'+
+    '<div class="item-field"><div class="item-field-label">为什么不建议手删</div><div class="item-field-value">'+esc(it.why_keep)+'</div></div>'+
+    '<div class="item-field"><div class="item-field-label">卸载释放建议</div><div class="item-field-value">'+esc(it.indirect_release)+'</div></div>'+
+    (it.auto_reclaim?'<div class="item-field"><div class="item-field-label">是否自动回收</div><div class="item-field-value">'+esc(it.auto_reclaim)+'</div></div>':'')+
+    '</div></div>';
+}
+
+function renderSummary() {
+  var sm = DATA.summary;
+  if (!sm) return '';
+  var lt = sm.long_term||[];
+  var ltHtml = lt.length ? '<div class="long-term"><h4>长期优化建议</h4><ul>'+lt.map(function(l){
+    return '<li>'+l.replace(/`([^`]+)`/g,'<code>$1</code>')+'</li>';
+  }).join('')+'</ul></div>' : '';
+  return '<div class="summary-card" id="summary">'+
+    '<h3>总结</h3>'+
+    '<p style="margin-bottom:16px;font-size:14px;color:var(--sub)">'+esc(sm.overview)+'</p>'+
+    '<h4 style="font-size:13px;margin-bottom:8px">优先级</h4>'+
+    '<ol>'+sm.priority.map(function(p){return '<li>'+esc(p)+'</li>';}).join('')+'</ol>'+ltHtml+'</div>';
+}
+
+function copyBtn(text) {
+  var id = 'cp'+Math.random().toString(36).slice(2);
+  return '<button class="cmd-copy" id="'+id+'" data-cmd="'+btoa(unescape(encodeURIComponent(text)))+'">复制</button>';
+}
+
+function doDelete(btn, mode) {
+  if (!DELETE) return;
+  var wrap = btn.closest('.action-row');
+  var status = wrap.querySelector('.del-status');
+  var paths = JSON.parse(decodeURIComponent(escape(atob(wrap.dataset.paths))));
+  var verb = mode==='rm' ? '直接删除（不可恢复）' : '移到废纸篓（可逆）';
+  if (!confirm('确认'+verb+'以下 '+paths.length+' 个路径？\n\n'+paths.join('\n'))) return;
+  status.textContent = '处理中…';
+  fetch(DELETE.endpoint, {method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({token:DELETE.token, paths:paths, mode:mode})})
+    .then(function(r){return r.json();})
+    .then(function(res){
+      if(res.ok){ status.textContent='OK'; status.className='status-ok del-status';
+        wrap.querySelectorAll('button').forEach(function(b){b.remove();});
+        var card = wrap.closest('.item-card'); if(card) card.classList.add('cleaned');
+      } else { status.textContent='✗ '+(res.error||'失败'); status.className='status-err del-status'; }
+    }).catch(function(e){ status.textContent='✗ '+e; status.className='status-err del-status'; });
+}
+
+function batchGreenAll() {
+  if (!DELETE) return;
+  if (!confirm('确认将这组缓存全部移到废纸篓？')) return;
+  var allPaths = [];
+  document.querySelectorAll('.item-card.green .action-row').forEach(function(w){
+    var p = JSON.parse(decodeURIComponent(escape(atob(w.dataset.paths))));
+    allPaths = allPaths.concat(p);
+  });
+  if (!allPaths.length) return;
+  fetch(DELETE.endpoint, {method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({token:DELETE.token, paths:allPaths, mode:'trash'})})
+    .then(function(r){return r.json();})
+    .then(function(res){
+      if(res.ok){
+        document.querySelectorAll('.item-card.green').forEach(function(c){c.classList.add('cleaned');});
+      }
+    });
+}
+
+// Navigation
+document.querySelectorAll('.sb-nav a').forEach(function(a){
+  a.addEventListener('click',function(e){
+    e.preventDefault();
+    document.querySelectorAll('.sb-nav a').forEach(function(x){x.classList.remove('active');});
+    a.classList.add('active');
+    var el = document.getElementById(a.dataset.section);
+    if (el) el.scrollIntoView({behavior:'smooth',block:'start'});
+  });
+});
+
+// Copy handlers
+document.addEventListener('click', function(e){
+  var b = e.target.closest('.cmd-copy');
+  if (!b) return;
+  e.stopPropagation();
+  var text = decodeURIComponent(escape(atob(b.dataset.cmd)));
+  navigator.clipboard.writeText(text).then(function(){
+    b.textContent = '已复制';
+    setTimeout(function(){b.textContent='复制';},1500);
+  });
+});
+
+// Mount
+var sm = DATA.summary;
+document.getElementById('sb-meta').textContent = '扫描于 '+DATA.generated_at+' · '+DATA.scan_seconds+'s';
+document.getElementById('nav-green-count').textContent = DATA.green.length;
+document.getElementById('nav-amber-count').textContent = DATA.yellow.length;
+document.getElementById('nav-red-count').textContent = DATA.red.length;
+document.getElementById('app-root').innerHTML =
+  renderDiskOverview() +
+  renderTierCards() +
+  renderPriority() +
+  renderSection('green','可自动清理',DATA.green,renderGreenItem) +
+  renderSection('amber','需人工判断',DATA.yellow,renderAmberItem) +
+  renderSection('red','建议卸载',DATA.red,renderRedItem) +
+  renderSummary();
+</script>
+</body>
+</html>
