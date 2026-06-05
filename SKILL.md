@@ -100,11 +100,17 @@ python scripts/scan.py > %TEMP%\storage_scan.json
 
 ### Step 4 启动交互式服务并自动打开
 
-```bash
-python scripts/server.py %TEMP%\storage_analysis.json --no-browser
+使用 PowerShell `Start-Process` 以独立进程启动（不受 Bash 超时影响）：
+
+```powershell
+Start-Process -FilePath "python" -ArgumentList "scripts/server.py","%TEMP%\storage_analysis.json","--no-browser","--port-file","%TEMP%\storage_server_url.txt" -WindowStyle Hidden
 ```
 
-启动本地 HTTP 服务（127.0.0.1:随机端口 + 随机 Token），**启动后必须立即用 `preview_url` 打开**。
+启动后：
+1. 等待 2 秒读取 `%TEMP%\storage_server_url.txt` 获取 URL
+2. 健康检查 `GET /health` 确认服务正常
+3. **用 `Start-Process` 在用户默认浏览器中打开 URL**（不要用 `preview_url`，内嵌浏览器无法正确执行交互式功能）
+4. 同时可用 `preview_url` 在内嵌面板中预览（仅查看，一键清理功能需在真实浏览器中使用）
 
 这是默认模式，交互式网页支持：
 - 🟢 **一键清理全部** — 确认面板 + 逐项串行删除 + 进度反馈
@@ -423,3 +429,41 @@ python scripts/build_report.py %TEMP%\storage_analysis.json %USERPROFILE%\Deskto
 - `move_to_trash()` 增加错误码 120/124 回退逻辑：系统保护目录（如 `C:\Windows\SoftwareDistribution\Download`）或含被占用文件的目录无法移到回收站时，自动回退到 `hard_delete()`，避免清理失败
 - `ALLOWED_ROOTS` 新增 `C:\Program Files` 和 `C:\Program Files (x86)`：修复 🔴 项"在资源管理器打开"时 L7 root boundary 拦截（如 `C:\Program Files\Autodesk`）
 - `report_template.html` 修复 `onclick` 属性中 Windows 路径反斜杠丢失：`esc(p).replace(/'/g,"\\'")` 增加 `.replace(/\\/g,'\\\\')`，防止 JS 字符串中 `\P` 被当作无效转义序列吞掉反斜杠（如 `C:\ProgramData\Autodesk` 变成 `C:ProgramDataAutodesk`）
+
+### v2.3 — 设计级修复：JSON 解析方式 + 服务进程分离 (2026-06-05)
+
+修复交互式网页始终显示为"静态模式"（DELETE = null）的根因问题，涉及两个独立 bug。
+
+**Bug 1：内联 JSON 赋值导致 JS 解析崩溃**
+
+| 因素 | 旧设计 | 新设计 |
+|------|--------|--------|
+| 数据注入方式 | `DATA = {json};`（直接赋值） | `<script type="application/json">` + `JSON.parse()` |
+| DELETE 与 DATA | 同一个 try/catch 块 | 分离为两个独立 try/catch |
+| \u2028/\u2029 | 需手动转义（遗漏则 JS 语法错误） | 不需要（JSON.parse 不经过 JS 语法解析器） |
+| 内嵌浏览器兼容 | 大内联 JSON 导致 try 块整体失败 | JSON.parse 在所有浏览器中可靠 |
+
+**根因**：旧设计把 JSON 直接当作 JS 表达式赋值（`DATA = {json};`），任何 JSON 合法但 JS 非法的字符（如 U+2028/U+2029）或某些内嵌浏览器对大内联 JSON 的处理差异，都会导致 try 块抛出异常 → catch 块设置 `DELETE = null` → 页面表现为"静态模式"。由于 DATA 和 DELETE 在同一个 try/catch 中，DATA 的错误连带使 DELETE 失效。
+
+**Bug 2：Bash run_in_background 超时杀进程**
+
+| 因素 | 旧方式 | 新方式 |
+|------|--------|--------|
+| 启动命令 | `Bash run_in_background` | PowerShell `Start-Process` |
+| 进程生命周期 | 绑定到 Bash 会话，2分钟超时被杀 | 完全独立，不受会话超时影响 |
+| 端口发现 | 无 | `--port-file` 写入文件，延迟读取 |
+| 打开方式 | `preview_url`（内嵌浏览器，交互功能不可用） | `Start-Process URL`（用户默认浏览器） |
+
+**改动清单**：
+
+| 文件 | 类型 | 项目 | 说明 |
+|------|------|------|------|
+| `report_template.html` | 重构 | 数据注入方式 | `DATA = {json}` → `<script type="application/json" id="__report_data__">` + `JSON.parse(document.getElementById('__report_data__').textContent)` |
+| `report_template.html` | 重构 | DELETE 解析 | 与 DATA 分离为独立 try/catch，DATA 失败不影响 DELETE |
+| `report_template.html` | 移除 | \u2028/\u2029 转义 | 不再需要（JSON.parse 不经过 JS 语法解析） |
+| `server.py` | 新增 | `--port` 参数 | 可指定固定端口（默认随机） |
+| `server.py` | 新增 | `--port-file` 参数 | 启动后写入 URL 到指定文件，供外部读取端口 |
+| `server.py` | 修复 | 线程模型 | daemon 线程 → 主线程 serve_forever + self-test 后台线程 |
+| `server.py` | 简化 | 转义逻辑 | 移除 `\u2028`/`\u2029` 转义（不再需要），仅保留 `</script>` 转义 |
+| `build_report.py` | 简化 | 转义逻辑 | 同上 |
+| `SKILL.md` | 更新 | Step 4 | 改用 `Start-Process` 启动 + 默认浏览器打开 |

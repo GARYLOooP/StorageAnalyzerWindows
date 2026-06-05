@@ -348,16 +348,26 @@
   </div>
 </div>
 
+<script type="application/json" id="__report_data__">__REPORT_DATA__</script>
+<script type="application/json" id="__delete_config__">__DELETE_CONFIG__</script>
 <script>
-// ── 安全 JSON 解析：直接赋值 + 双重保护（build_report.py 已转义 <\/script> 和 \u2028/\u2029） ──
+// ── 安全 JSON 解析：从 <script type="application/json"> 读取，用 JSON.parse 解析 ──
+// 设计说明：不把 JSON 直接赋值为 JS 表达式（DATA = {json}），因为 JSON 合法字符
+// 如 U+2028/U+2029 会导致 JS 语法错误，某些内嵌浏览器也无法处理大内联 JSON。
+// 改用 <script type="application/json"> + JSON.parse()，彻底隔离数据与代码。
 var DATA, DELETE;
 try {
-  DATA = __REPORT_DATA__;
-  DELETE = __DELETE_CONFIG__;
+  DATA = JSON.parse(document.getElementById('__report_data__').textContent);
 } catch(e) {
   DATA = {};
-  DELETE = null;
   console.error('Failed to parse report data:', e);
+}
+try {
+  var cfgEl = document.getElementById('__delete_config__');
+  DELETE = cfgEl ? JSON.parse(cfgEl.textContent) : null;
+} catch(e) {
+  DELETE = null;
+  console.error('Failed to parse delete config:', e);
 }
 
 // ── 数据归一化：确保缺失字段有安全默认值，防止空白页 ──

@@ -229,11 +229,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path in ("/", "/index.html"):
             blob = json.dumps(DATA, ensure_ascii=False)
-            # 安全转义：防止 </script> 关闭 HTML 标签 + \u2028/\u2029 破坏 JS 解析
-            blob = blob.replace("</script", "<\\/script")\
-                       .replace("\u2028", "\\u2028")\
-                       .replace("\u2029", "\\u2029")
-            cfg = json.dumps({"token": TOKEN, "endpoint": "/action"})
+            # 安全转义：防止 </script> 关闭 HTML 标签
+            # 注意：\u2028/\u2029 不再需要转义，因为 JSON 数据现在在
+            # <script type="application/json"> 标签内，由 JSON.parse() 解析，
+            # 不经过 JS 语法解析器。
+            blob = blob.replace("</script", "<\\/script")
+            cfg = json.dumps({"token": TOKEN, "endpoint": "/action"}).replace("</script", "<\\/script")
             html = TPL.replace("__REPORT_DATA__", blob)\
                       .replace("__DELETE_CONFIG__", cfg)
             self._send(200, html, "text/html; charset=utf-8")
@@ -347,14 +348,26 @@ def main():
     p.add_argument("analysis", help="Path to analysis JSON")
     p.add_argument("--no-browser", action="store_true",
                    help="Do not auto-open browser")  # NEW
+    p.add_argument("--port", type=int, default=0,
+                   help="Port to listen on (0 = random)")
+    p.add_argument("--port-file", type=str, default="",
+                   help="Write the final URL to this file (for detached launch)")
     args = p.parse_args()
 
     global DATA, TPL, RM_ALLOW, TRASH_ALLOW, OPEN_ALLOW, _server_ref
     DATA, TPL, RM_ALLOW, TRASH_ALLOW, OPEN_ALLOW = load(args.analysis)
 
-    _server_ref = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    _server_ref = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     port = _server_ref.server_address[1]
     url = f"http://127.0.0.1:{port}/"
+
+    # Write URL to file so detached launcher can discover the port
+    if args.port_file:
+        try:
+            with open(args.port_file, "w", encoding="utf-8") as pf:
+                pf.write(url)
+        except Exception as e:
+            print(f"Warning: could not write port file: {e}")
 
     print(f"Report server started: {url}")
     print(f"Green (rm): {len(RM_ALLOW)} | "
@@ -363,30 +376,28 @@ def main():
     print(f"Health:   {url}health")
     print("Ctrl+C to stop")
 
-    # Start serve_forever in a daemon thread so self-test can reach it
     import threading
-    t = threading.Thread(target=_server_ref.serve_forever, daemon=True)
-    t.start()
-    time.sleep(0.3)  # brief wait for socket accept loop to start
 
-    # NEW: self-test
-    try:
-        import urllib.request
-        resp = urllib.request.urlopen(f"{url}health", timeout=3)
-        if resp.status == 200:
-            print("Self-test: OK")
-        else:
-            print(f"Self-test: FAILED (HTTP {resp.status})")
-            sys.exit(1)
-    except Exception as e:
-        print(f"Self-test: FAILED ({e})")
-        sys.exit(1)
+    # Self-test in a background thread; serve_forever blocks the main thread
+    def _self_test():
+        time.sleep(0.5)
+        try:
+            import urllib.request
+            resp = urllib.request.urlopen(f"{url}health", timeout=3)
+            if resp.status == 200:
+                print("Self-test: OK")
+            else:
+                print(f"Self-test: FAILED (HTTP {resp.status})")
+        except Exception as e:
+            print(f"Self-test: FAILED ({e})")
 
-    if not args.no_browser:  # CHANGED: --no-browser support
+    threading.Thread(target=_self_test).start()
+
+    if not args.no_browser:
         webbrowser.open(url)
 
     try:
-        t.join()  # wait for serve_forever thread
+        _server_ref.serve_forever()
     except KeyboardInterrupt:
         print("\nServer stopped.")
     finally:

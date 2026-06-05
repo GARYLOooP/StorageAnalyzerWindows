@@ -81,12 +81,11 @@ def main():
 
     blob = json.dumps(data, ensure_ascii=False)
 
-    # 关键安全转义（必须在 replace 之前）：
-    # 1. </script> — JSON 中的路径若含此字符串会关闭 HTML script 标签，导致整页崩溃
-    # 2. \u2028 / \u2029 — Unicode 行/段分隔符，JSON 字符串合法但 JS 字符串中是非法行终止符
-    blob_safe = blob.replace("</script", "<\\/script")\
-                    .replace("\u2028", "\\u2028")\
-                    .replace("\u2029", "\\u2029")
+    # 安全转义：</script> 会关闭 HTML script 标签，需转义。
+    # 注意：\u2028/\u2029 不再需要转义，因为 JSON 数据现在在
+    # <script type="application/json"> 标签内，由 JSON.parse() 解析，
+    # 不经过 JS 语法解析器，不会再导致 JS 语法错误。
+    blob_safe = blob.replace("</script", "<\\/script")
 
     # Static report has no delete capability (DELETE=null).
     # Delete buttons only appear when served via server.py.
