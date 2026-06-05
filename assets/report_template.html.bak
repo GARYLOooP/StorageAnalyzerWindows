@@ -186,11 +186,6 @@
   .cmd-block .cmd-copy:hover { background: #475569; color: #fff; }
   .cmd-label { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
   .action-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
-  .warn-banner {
-    background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius);
-    padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: #92400e;
-  }
-  .warn-banner strong { color: #78350f; }
   @media (max-width: 768px) {
     .sidebar { display: none; }
     .main { padding: 20px 16px 40px; }
@@ -229,16 +224,8 @@
 </div>
 
 <script>
-// ── 安全 JSON 解析：直接赋值 + 双重保护（build_report.py 已转义 </script> 和 \u2028/\u2029） ──
-var DATA, DELETE;
-try {
-  DATA = __REPORT_DATA__;
-  DELETE = __DELETE_CONFIG__;
-} catch(e) {
-  DATA = {};
-  DELETE = null;
-  console.error('Failed to parse report data:', e);
-}
+const DATA = __REPORT_DATA__;
+const DELETE = __DELETE_CONFIG__; // null=static readonly; {token,endpoint}=server mode with one-click actions
 
 // ── 数据归一化：确保缺失字段有安全默认值，防止空白页 ──
 (function normalize() {
@@ -252,53 +239,15 @@ try {
   DATA.system.disk_used = DATA.system.disk_used || '0 GB';
   DATA.system.disk_free = DATA.system.disk_free || '0 GB';
   DATA.system.disks = DATA.system.disks || [];
-
-  // FIX: amber → yellow 兼容（Agent 可能写 amber 而非 yellow）
-  if (!Array.isArray(DATA.yellow) && Array.isArray(DATA.amber)) {
-    DATA.yellow = DATA.amber;
-  }
-  if (!Array.isArray(DATA.green) && Array.isArray(DATA.green_items)) {
-    DATA.green = DATA.green_items;
-  }
-
   DATA.green = Array.isArray(DATA.green) ? DATA.green : [];
   DATA.yellow = Array.isArray(DATA.yellow) ? DATA.yellow : [];
   DATA.red = Array.isArray(DATA.red) ? DATA.red : [];
-
-  // FIX: 逐项字段补全，防止渲染时 undefined 导致空白
-  DATA.green.forEach(function(it) {
-    it.name = it.name || it.path || '未命名';
-    it.path = it.path || '';
-    it.size_estimate = it.size_estimate || it.size || it.size_h || '';
-    it.kill_processes = Array.isArray(it.kill_processes) ? it.kill_processes : [];
-    it.trash_paths = Array.isArray(it.trash_paths) ? it.trash_paths : [];
-    it.commands = Array.isArray(it.commands) ? it.commands : [];
-  });
-  DATA.yellow.forEach(function(it) {
-    it.name = it.name || it.path || '未命名';
-    it.path = it.path || '';
-    it.size = it.size || it.size_estimate || '';
-    it.content_profile = it.content_profile || '暂无内容画像';
-    it.why_manual = it.why_manual || '需人工判断是否清理';
-    it.disposal = it.disposal || '请手动检查后决定';
-    it.risk = it.risk || '删除前请确认数据重要性';
-    it.trash_paths = Array.isArray(it.trash_paths) ? it.trash_paths : [];
-  });
-  DATA.red.forEach(function(it) {
-    it.name = it.name || it.path || '未命名';
-    it.path = it.path || '';
-    it.size = it.size || it.size_estimate || '';
-    it.why_keep = it.why_keep || '建议通过系统卸载流程处理';
-    it.indirect_release = it.indirect_release || '设置→应用→搜索应用名→卸载';
-    it.app_paths = Array.isArray(it.app_paths) ? it.app_paths : [];
-  });
-
   DATA.denied = Array.isArray(DATA.denied) ? DATA.denied : [];
   DATA.top5 = Array.isArray(DATA.top5) ? DATA.top5 : [];
   DATA.summary = DATA.summary || {};
   DATA.summary.tier_stats = DATA.summary.tier_stats || {};
   DATA.summary.tier_stats.green = DATA.summary.tier_stats.green || '0 GB';
-  DATA.summary.tier_stats.yellow = DATA.summary.tier_stats.yellow || DATA.summary.tier_stats.amber || '0 GB';
+  DATA.summary.tier_stats.yellow = DATA.summary.tier_stats.yellow || '0 GB';
   DATA.summary.tier_stats.red = DATA.summary.tier_stats.red || '0 GB';
   DATA.summary.overview = DATA.summary.overview || '';
   DATA.summary.priority = Array.isArray(DATA.summary.priority) ? DATA.summary.priority : [];
@@ -428,16 +377,6 @@ function renderGreenActions(it) {
 }
 
 function renderAmberItem(it, idx) {
-  // FIX: 为 amber/yellow 项渲染 trash_paths 按钮（如有安全子路径）
-  var trashBtns = '';
-  if (it.trash_paths && it.trash_paths.length && DELETE) {
-    var payload = btoa(unescape(encodeURIComponent(JSON.stringify(it.trash_paths))));
-    trashBtns = '<div class="action-row" data-paths="'+payload+'">'+
-      '<button class="btn btn-amber btn-sm" onclick="event.stopPropagation();doDelete(this,\'trash\')">移到废纸篓（安全子路径）</button>'+
-      '<span class="del-status"></span></div>';
-  }
-  var openBtn = it.path ? '<div class="action-row"><button class="btn btn-sm" onclick="event.stopPropagation();doOpen(\''+esc(it.path).replace(/'/g,"\\'")+'\')">在资源管理器打开</button></div>' : '';
-
   return '<div class="item-card amber" id="amber-'+idx+'">'+
     '<div class="item-head" onclick="this.parentElement.classList.toggle(\'open\')">'+
     '<span class="item-icon">&#9671;</span>'+
@@ -449,15 +388,10 @@ function renderAmberItem(it, idx) {
     '<div class="item-field"><div class="item-field-label">为什么需要人工判断</div><div class="item-field-value">'+esc(it.why_manual)+'</div></div>'+
     '<div class="item-field"><div class="item-field-label">处置路径</div><div class="item-field-value">'+esc(it.disposal)+'</div></div>'+
     '<div class="item-risk">'+esc(it.risk)+'</div>'+
-    trashBtns + openBtn +
     '</div></div>';
 }
 
 function renderRedItem(it, idx) {
-  var openBtns = (it.app_paths||[]).map(function(p){
-    return '<button class="btn btn-sm" onclick="event.stopPropagation();doOpen(\''+esc(p).replace(/'/g,"\\'")+'\')">在资源管理器打开</button>';
-  }).join(' ');
-
   return '<div class="item-card red" id="red-'+idx+'">'+
     '<div class="item-head" onclick="this.parentElement.classList.toggle(\'open\')">'+
     '<span class="item-icon">&#9632;</span>'+
@@ -468,7 +402,6 @@ function renderRedItem(it, idx) {
     '<div class="item-field"><div class="item-field-label">为什么不建议手删</div><div class="item-field-value">'+esc(it.why_keep)+'</div></div>'+
     '<div class="item-field"><div class="item-field-label">卸载释放建议</div><div class="item-field-value">'+esc(it.indirect_release)+'</div></div>'+
     (it.auto_reclaim?'<div class="item-field"><div class="item-field-label">是否自动回收</div><div class="item-field-value">'+esc(it.auto_reclaim)+'</div></div>':'')+
-    (openBtns?'<div class="action-row">'+openBtns+'</div>':'')+
     '</div></div>';
 }
 
@@ -508,16 +441,6 @@ function doDelete(btn, mode) {
         var card = wrap.closest('.item-card'); if(card) card.classList.add('cleaned');
       } else { status.textContent='✗ '+(res.error||'失败'); status.className='status-err del-status'; }
     }).catch(function(e){ status.textContent='✗ '+e; status.className='status-err del-status'; });
-}
-
-function doOpen(path) {
-  if (!DELETE) return;
-  fetch(DELETE.endpoint, {method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({token:DELETE.token, paths:[path], mode:'open'})})
-    .then(function(r){return r.json();})
-    .then(function(res){
-      if(!res.ok) alert('打开失败：'+(res.error||'未知错误'));
-    }).catch(function(e){ alert('打开失败：'+e); });
 }
 
 function batchGreenAll() {
@@ -566,29 +489,11 @@ document.addEventListener('click', function(e){
 (function mount() {
   try {
     var sm = DATA.summary;
-    var warnings = [];
-
-    // FIX: 结构诊断 — 检查关键字段是否存在
-    if (!DATA.green.length && !DATA.yellow.length && !DATA.red.length) {
-      warnings.push('⚠️ 未检测到 green/yellow/red 任何一项数据。如果 Agent 写了 "amber" 而非 "yellow"，数据可能丢失。');
-    }
-    if (DATA.green.some(function(it){return !it.size_estimate && !it.size;})) {
-      warnings.push('⚠️ 部分 🟢 项缺少 size_estimate 字段，大小可能显示为空。');
-    }
-    if (DATA.yellow.some(function(it){return !it.content_profile || !it.why_manual;})) {
-      warnings.push('⚠️ 部分 🟡 项缺少 content_profile 或 why_manual 字段。');
-    }
-    // 显示 build_report.py 传入的结构警告
-    if (Array.isArray(DATA._warnings) && DATA._warnings.length) {
-      DATA._warnings.forEach(function(w){ warnings.push('⚠️ ' + w); });
-    }
-
     document.getElementById('sb-meta').textContent = '扫描于 '+DATA.generated_at+' · '+DATA.scan_seconds+'s';
     document.getElementById('nav-green-count').textContent = DATA.green.length;
     document.getElementById('nav-amber-count').textContent = DATA.yellow.length;
     document.getElementById('nav-red-count').textContent = DATA.red.length;
     document.getElementById('app-root').innerHTML =
-      (warnings.length ? '<div class="warn-banner"><strong>数据结构提示：</strong><br>'+warnings.join('<br>')+'</div>' : '') +
       renderDiskOverview() +
       renderTierCards() +
       renderPriority() +
@@ -601,13 +506,10 @@ document.addEventListener('click', function(e){
       '<div class="disk-card" style="text-align:center;padding:60px 20px">'+
       '<div style="font-size:48px;margin-bottom:16px">&#9888;</div>'+
       '<h3 style="margin-bottom:8px">报告渲染异常</h3>'+
-      '<p style="color:var(--sub);font-size:14px;margin-bottom:16px">分析数据结构不匹配，请检查 JSON 字段名是否符合模板要求。</p>'+
+      '<p style="color:var(--sub);font-size:14px;margin-bottom:16px">分析数据可能不完整，请重新扫描</p>'+
       '<details style="text-align:left;margin-top:12px"><summary style="cursor:pointer;color:var(--muted);font-size:12px">调试信息</summary>'+
       '<pre style="background:var(--surface);padding:12px;border-radius:6px;font-size:11px;overflow:auto;margin-top:8px;text-align:left">'+
-      esc(e.message||String(e))+'\n\n'+esc(e.stack||'')+'</pre></details>'+
-      '<details style="text-align:left;margin-top:12px"><summary style="cursor:pointer;color:var(--muted);font-size:12px">原始数据（前 2000 字符）</summary>'+
-      '<pre style="background:var(--surface);padding:12px;border-radius:6px;font-size:11px;overflow:auto;margin-top:8px;text-align:left;max-height:300px">'+
-      esc(JSON.stringify(DATA).substring(0,2000))+'</pre></details></div>';
+      esc(e.message||String(e))+'\n\n'+esc(e.stack||'')+'</pre></details></div>';
     console.error('Report render error:', e);
   }
 })();

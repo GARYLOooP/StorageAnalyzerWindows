@@ -333,3 +333,39 @@ python scripts/server.py %TEMP%\storage_analysis.json --no-browser
 | 扫描覆盖率 | ~35% | ~90% |
 | Quick 模式 Top 条目 | （无此模式） | 7 项（聚合后） |
 | macOS 代码 | 150 行 | 0 行 |
+
+### v2.1 — HTML 空白页修复 (2026-06-05)
+
+修复报告 HTML 在浏览器中显示空白的致命问题。根因：JSON 数据注入 HTML 时，3 个崩溃点会导致整个 `<script>` 块解析失败 → 页面空白。
+
+**崩溃点分析**：
+
+| 崩溃点 | 触发条件 | 后果 |
+|--------|---------|------|
+| `</script>` 注入 | JSON 中路径含 `</script>` 字符串 | 浏览器提前关闭 `<script>` 标签 → JS 块断裂 → **空白页** |
+| `\u2028`/`\u2029` | JSON 字符串含 Unicode 行/段分隔符 | 合法 JSON 但非法 JS → 语法错误 → **空白页** |
+| amber/yellow 歧义 | Agent 写 `amber` 而非 `yellow` | normalize 把 `DATA.yellow` 设为空数组 → 黄色项全部丢失 |
+
+**改动清单**：
+
+| 文件 | 类型 | 项目 | 说明 |
+|------|------|------|------|
+| `build_report.py` | 新增 | `validate()` 结构验证函数 | 检查必需 top-level 键、amber/yellow 歧义、green/yellow/red 项必填字段、summary 完整性，输出诊断警告 |
+| `build_report.py` | 修复 | 三重安全转义 | `</script>` → `<\/script`，`\u2028` → `\u2028`，`\u2029` → `\u2029`，彻底消除 JS 解析崩溃 |
+| `build_report.py` | 新增 | `_warnings` 注入数据 | 将结构验证警告传入模板，页面也能显示诊断提示 |
+| `report_template.html` | 修复 | amber→yellow / green_items→green 兼容 | Agent 写 `amber` 不再导致数据丢失 |
+| `report_template.html` | 修复 | 逐项字段补全 | green/yellow/red 每一项缺失的字段自动填安全默认值（如 `content_profile` → "暂无内容画像"），不再显示 undefined 或空白 |
+| `report_template.html` | 新增 | mount 函数结构诊断 | 检测 green/yellow/red 全空、缺少 size_estimate、缺少 content_profile 等问题，页面顶部显示警告横幅 |
+| `report_template.html` | 新增 | build_report 警告透传 | `_warnings` 数组中的验证警告也会在页面中显示 |
+| `report_template.html` | 修复 | catch 块增加调试信息 | JS 解析失败时不再空白，显示错误详情和原始数据片段 |
+| `server.py` | 修复 | 三重安全转义（同 build_report.py） | 服务模式下也不会因 `</script>` / `\u2028` 崩溃 |
+| `server.py` | 修复 | amber→yellow 兼容 | `load()` 函数自动将 `amber` 键重命名为 `yellow` |
+
+**测试验证**：
+
+| 测试场景 | 结果 |
+|---------|------|
+| 标准 JSON（完全匹配附录B模板） | ✅ 正常渲染 |
+| 不完美 JSON（amber 代替 yellow + red 缺必填字段） | ✅ 有警告横幅但正常渲染，数据不丢失 |
+| 极端最小 JSON（只有 system 字段，无 green/yellow/red） | ✅ 优雅降级，页面显示警告而非空白 |
+| 含 `\u2028`/`\u2029` 的 JSON | ✅ 正确转义为 `\u2028`/`\u2029`，不再触发 JS 语法错误 |

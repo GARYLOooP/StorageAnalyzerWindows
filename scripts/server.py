@@ -156,6 +156,10 @@ def load(src: str):
     with open(TEMPLATE, encoding="utf-8") as f:
         tpl = f.read()
 
+    # FIX: amber → yellow 兼容（Agent 可能写 amber 而非 yellow）
+    if "amber" in data and "yellow" not in data:
+        data["yellow"] = data.pop("amber")
+
     rm = set()
     trash = set()
     open_ = set()
@@ -214,6 +218,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path in ("/", "/index.html"):
             blob = json.dumps(DATA, ensure_ascii=False)
+            # 安全转义：防止 </script> 关闭 HTML 标签 + \u2028/\u2029 破坏 JS 解析
+            blob = blob.replace("</script", "<\\/script")\
+                       .replace("\u2028", "\\u2028")\
+                       .replace("\u2029", "\\u2029")
             cfg = json.dumps({"token": TOKEN, "endpoint": "/action"})
             html = TPL.replace("__REPORT_DATA__", blob)\
                       .replace("__DELETE_CONFIG__", cfg)
