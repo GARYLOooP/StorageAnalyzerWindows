@@ -104,6 +104,15 @@
   .item-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
   .item-card.cleaned { opacity: 0.55; }
   .item-card.cleaned .item-title { text-decoration: line-through; }
+  .item-card.batch-cleaning .item-title::after {
+    content: ' 清理中…'; color: var(--green); font-size: 12px; font-weight: 400;
+  }
+  .item-card.batch-ok .item-title::after {
+    content: ' ✓'; color: var(--green); font-size: 14px; font-weight: 600;
+  }
+  .item-card.batch-fail .item-title::after {
+    content: ' ✗'; color: var(--red); font-size: 14px; font-weight: 600;
+  }
   .item-head {
     display: flex; align-items: center; gap: 12px;
     padding: 14px 20px; cursor: pointer; user-select: none;
@@ -152,6 +161,7 @@
   .btn.amber:hover { background: #fef3c7; }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .btn-lg { padding: 10px 24px; font-size: 15px; font-weight: 600; border-radius: var(--radius); }
   .status-ok { color: var(--green); font-size: 12px; font-weight: 500; }
   .status-err { color: var(--red); font-size: 12px; }
   .summary-card {
@@ -191,10 +201,99 @@
     padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: #92400e;
   }
   .warn-banner strong { color: #78350f; }
+
+  /* ── 一键清理确认面板 ── */
+  .modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.45); z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 200ms;
+  }
+  .modal-overlay.active { opacity: 1; pointer-events: auto; }
+  .modal {
+    background: var(--bg); border-radius: var(--radius-lg);
+    width: 560px; max-width: 92vw; max-height: 85vh;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    display: flex; flex-direction: column;
+    transform: translateY(20px); transition: transform 200ms;
+  }
+  .modal-overlay.active .modal { transform: translateY(0); }
+  .modal-header {
+    padding: 20px 24px 16px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .modal-header h3 { font-size: 16px; font-weight: 600; flex: 1; }
+  .modal-header .modal-close {
+    background: none; border: none; font-size: 20px; color: var(--muted);
+    cursor: pointer; padding: 4px 8px; border-radius: 4px;
+  }
+  .modal-header .modal-close:hover { background: var(--surface); color: var(--ink); }
+  .modal-body { padding: 16px 24px; overflow-y: auto; flex: 1; }
+  .modal-footer {
+    padding: 16px 24px; border-top: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .modal-footer .modal-footer-left { flex: 1; }
+  .modal-footer .modal-footer-right { display: flex; gap: 8px; }
+
+  /* 确认面板内的清理项列表 */
+  .clean-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: var(--radius-sm);
+    margin-bottom: 6px; transition: background var(--transition);
+  }
+  .clean-item:hover { background: var(--surface); }
+  .clean-item input[type="checkbox"] {
+    width: 18px; height: 18px; accent-color: var(--green); cursor: pointer; flex-shrink: 0;
+  }
+  .clean-item-info { flex: 1; min-width: 0; }
+  .clean-item-name { font-size: 13px; font-weight: 500; }
+  .clean-item-path {
+    font-family: "SF Mono", "Cascadia Code", ui-monospace, monospace;
+    font-size: 11px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .clean-item-size { font-size: 13px; font-weight: 600; color: var(--green); white-space: nowrap; }
+  .clean-item-status { font-size: 12px; margin-left: 4px; }
+  .clean-item-status.cleaning { color: var(--amber); }
+  .clean-item-status.ok { color: var(--green); font-weight: 500; }
+  .clean-item-status.fail { color: var(--red); }
+
+  /* 进度条 */
+  .progress-bar {
+    height: 6px; background: var(--line); border-radius: 3px;
+    margin: 12px 0; overflow: hidden;
+  }
+  .progress-bar .progress-fill {
+    height: 100%; background: var(--green); border-radius: 3px;
+    transition: width 300ms ease; width: 0%;
+  }
+  .progress-text { font-size: 12px; color: var(--sub); }
+
+  /* 结果摘要 */
+  .result-summary {
+    padding: 12px 16px; border-radius: var(--radius-sm);
+    margin-top: 12px; font-size: 13px; line-height: 1.7;
+  }
+  .result-summary.success { background: var(--green-bg); color: var(--green); }
+  .result-summary.partial { background: var(--amber-bg); color: var(--amber); }
+  .result-summary.failed { background: var(--red-bg); color: var(--red); }
+
+  /* 全选/取消全选 */
+  .select-all-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; margin-bottom: 8px;
+    border-bottom: 1px solid var(--line); font-size: 13px; color: var(--sub);
+  }
+  .select-all-row input[type="checkbox"] {
+    width: 18px; height: 18px; accent-color: var(--green); cursor: pointer;
+  }
+
   @media (max-width: 768px) {
     .sidebar { display: none; }
     .main { padding: 20px 16px 40px; }
     .tier-grid { grid-template-columns: 1fr; }
+    .modal { width: 96vw; max-height: 90vh; }
   }
   @keyframes fadeInUp {
     from { opacity: 0; transform: translateY(12px); }
@@ -228,8 +327,29 @@
   <main class="main" id="app-root"></main>
 </div>
 
+<!-- 一键清理确认面板 -->
+<div class="modal-overlay" id="batch-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="batch-modal-title">确认清理</h3>
+      <button class="modal-close" onclick="closeBatchModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="batch-modal-body">
+      <!-- 动态填充：清理项列表 + 进度条 + 结果 -->
+    </div>
+    <div class="modal-footer" id="batch-modal-footer">
+      <div class="modal-footer-left">
+        <span class="progress-text" id="batch-progress-text"></span>
+      </div>
+      <div class="modal-footer-right" id="batch-footer-btns">
+        <!-- 动态填充：取消/确认按钮 -->
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
-// ── 安全 JSON 解析：直接赋值 + 双重保护（build_report.py 已转义 </script> 和 \u2028/\u2029） ──
+// ── 安全 JSON 解析：直接赋值 + 双重保护（build_report.py 已转义 <\/script> 和 \u2028/\u2029） ──
 var DATA, DELETE;
 try {
   DATA = __REPORT_DATA__;
@@ -391,7 +511,13 @@ function renderSection(cls, label, items, renderItem) {
   var tier = cls==='amber'?'amber':cls;
   var colors = {green:{bg:'var(--green-bg)',c:'var(--green)'},amber:{bg:'var(--amber-bg)',c:'var(--amber)'},red:{bg:'var(--red-bg)',c:'var(--red)'}};
   var cc = colors[tier];
-  var batchBtn = tier==='green' ? '<div class="actions"><button class="btn btn-success btn-sm" onclick="batchGreenAll()">全部移废纸篓</button></div>' : '';
+  // 绿色区：醒目大按钮
+  var batchBtn = '';
+  if (tier === 'green' && items.length > 0 && items.some(function(it){ return it.trash_paths && it.trash_paths.length; })) {
+    var greenSize = DATA.summary && DATA.summary.tier_stats ? DATA.summary.tier_stats.green : '';
+    var sizeLabel = greenSize ? ' (' + esc(greenSize) + ')' : '';
+    batchBtn = '<div class="actions"><button class="btn success btn-lg" onclick="openBatchModal()">&#128465; 一键清理全部 ' + items.length + ' 项' + sizeLabel + '</button></div>';
+  }
   return '<div class="section" id="'+tier+'">'+
     '<div class="section-header"><h3>'+label+'</h3>'+
     '<span class="badge" style="background:'+cc.bg+';color:'+cc.c+'">'+items.length+' 项</span>'+batchBtn+'</div>'+
@@ -406,7 +532,7 @@ function renderGreenItem(it, idx) {
     ? '<div class="item-field"><div class="item-field-label">清理前需关闭</div><div class="item-field-value">'+it.kill_processes.map(function(p){return esc(p);}).join('、')+'</div></div>'
     : '';
 
-  return '<div class="item-card green" id="green-'+idx+'">'+
+  return '<div class="item-card green" id="green-'+idx+'" data-green-idx="'+idx+'">'+
     '<div class="item-head" onclick="this.parentElement.classList.toggle(\'open\')">'+
     '<span class="item-icon">&#9678;</span>'+
     '<div class="item-info"><div class="item-title">'+esc(it.name)+'</div><div class="item-path">'+esc(it.path)+'</div></div>'+
@@ -428,7 +554,6 @@ function renderGreenActions(it) {
 }
 
 function renderAmberItem(it, idx) {
-  // FIX: 为 amber/yellow 项渲染 trash_paths 按钮（如有安全子路径）
   var trashBtns = '';
   if (it.trash_paths && it.trash_paths.length && DELETE) {
     var payload = btoa(unescape(encodeURIComponent(JSON.stringify(it.trash_paths))));
@@ -436,7 +561,7 @@ function renderAmberItem(it, idx) {
       '<button class="btn btn-amber btn-sm" onclick="event.stopPropagation();doDelete(this,\'trash\')">移到废纸篓（安全子路径）</button>'+
       '<span class="del-status"></span></div>';
   }
-  var openBtn = it.path ? '<div class="action-row"><button class="btn btn-sm" onclick="event.stopPropagation();doOpen(\''+esc(it.path).replace(/'/g,"\\'")+'\')">在资源管理器打开</button></div>' : '';
+  var openBtn = it.path ? '<div class="action-row"><button class="btn btn-sm" onclick="event.stopPropagation();doOpen(\''+esc(it.path).replace(/\\/g,'\\\\').replace(/'/g,"\\'")+'\')">在资源管理器打开</button></div>' : '';
 
   return '<div class="item-card amber" id="amber-'+idx+'">'+
     '<div class="item-head" onclick="this.parentElement.classList.toggle(\'open\')">'+
@@ -455,7 +580,7 @@ function renderAmberItem(it, idx) {
 
 function renderRedItem(it, idx) {
   var openBtns = (it.app_paths||[]).map(function(p){
-    return '<button class="btn btn-sm" onclick="event.stopPropagation();doOpen(\''+esc(p).replace(/'/g,"\\'")+'\')">在资源管理器打开</button>';
+    return '<button class="btn btn-sm" onclick="event.stopPropagation();doOpen(\''+esc(p).replace(/\\/g,'\\\\').replace(/'/g,"\\'")+'\')">在资源管理器打开</button>';
   }).join(' ');
 
   return '<div class="item-card red" id="red-'+idx+'">'+
@@ -491,6 +616,8 @@ function copyBtn(text) {
   return '<button class="cmd-copy" id="'+id+'" data-cmd="'+btoa(unescape(encodeURIComponent(text)))+'">复制</button>';
 }
 
+// ── 单项删除（保持原有逻辑） ──
+
 function doDelete(btn, mode) {
   if (!DELETE) return;
   var wrap = btn.closest('.action-row');
@@ -520,23 +647,191 @@ function doOpen(path) {
     }).catch(function(e){ alert('打开失败：'+e); });
 }
 
-function batchGreenAll() {
-  if (!DELETE) return;
-  if (!confirm('确认将这组缓存全部移到废纸篓？')) return;
-  var allPaths = [];
-  document.querySelectorAll('.item-card.green .action-row').forEach(function(w){
-    var p = JSON.parse(decodeURIComponent(escape(atob(w.dataset.paths))));
-    allPaths = allPaths.concat(p);
+// ── 一键清理：确认面板 + 串行删除 + 进度反馈（方案 A + C） ──
+
+/**
+ * 收集所有绿色项中有 trash_paths 的条目
+ * 返回 [{idx, name, path, size, trash_paths}]
+ */
+function getCleanableGreenItems() {
+  var result = [];
+  DATA.green.forEach(function(it, i) {
+    if (it.trash_paths && it.trash_paths.length) {
+      result.push({idx: i, name: it.name, path: it.path, size: it.size_estimate, trash_paths: it.trash_paths});
+    }
   });
-  if (!allPaths.length) return;
-  fetch(DELETE.endpoint, {method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({token:DELETE.token, paths:allPaths, mode:'trash'})})
-    .then(function(r){return r.json();})
-    .then(function(res){
-      if(res.ok){
-        document.querySelectorAll('.item-card.green').forEach(function(c){c.classList.add('cleaned');});
+  return result;
+}
+
+/**
+ * 打开确认面板
+ */
+function openBatchModal() {
+  if (!DELETE) { alert('当前为静态报告模式，无法在线清理。请使用服务模式(server.py)启动报告。'); return; }
+
+  var items = getCleanableGreenItems();
+  if (!items.length) { alert('没有可清理的项目'); return; }
+
+  var greenSize = DATA.summary && DATA.summary.tier_stats ? DATA.summary.tier_stats.green : '';
+
+  // 标题
+  document.getElementById('batch-modal-title').textContent =
+    '确认清理 ' + items.length + ' 项' + (greenSize ? '（' + greenSize + '）' : '');
+
+  // 构建列表
+  var bodyHtml = '<div class="select-all-row">' +
+    '<input type="checkbox" id="batch-select-all" checked onchange="toggleSelectAll(this)">' +
+    '<label for="batch-select-all">全选 / 取消全选</label></div>';
+
+  items.forEach(function(it, i) {
+    bodyHtml += '<div class="clean-item" id="batch-item-' + i + '">' +
+      '<input type="checkbox" class="batch-checkbox" data-batch-idx="' + i + '" checked>' +
+      '<div class="clean-item-info">' +
+        '<div class="clean-item-name">' + esc(it.name) + '</div>' +
+        '<div class="clean-item-path">' + esc(it.trash_paths.join(' · ')) + '</div>' +
+      '</div>' +
+      '<span class="clean-item-size">' + esc(it.size) + '</span>' +
+      '<span class="clean-item-status" id="batch-status-' + i + '"></span>' +
+    '</div>';
+  });
+
+  // 进度条（初始隐藏）
+  bodyHtml += '<div class="progress-bar" id="batch-progress-bar" style="display:none">' +
+    '<div class="progress-fill" id="batch-progress-fill"></div></div>';
+  bodyHtml += '<span class="progress-text" id="batch-progress-detail"></span>';
+  // 结果摘要区域
+  bodyHtml += '<div id="batch-result-summary"></div>';
+
+  document.getElementById('batch-modal-body').innerHTML = bodyHtml;
+
+  // 底部按钮
+  document.getElementById('batch-footer-btns').innerHTML =
+    '<button class="btn" onclick="closeBatchModal()" id="batch-btn-cancel">取消</button>' +
+    '<button class="btn success btn-lg" onclick="executeBatchClean(\'trash\')" id="batch-btn-trash">&#128465; 确认移到废纸篓</button>' +
+    '<button class="btn danger" onclick="executeBatchClean(\'rm\')" id="batch-btn-rm" style="display:none">直接删除</button>';
+
+  // 显示/隐藏"直接删除"按钮的小切换
+  var toggleHtml = '<label style="font-size:11px;color:var(--muted);cursor:pointer">' +
+    '<input type="checkbox" onchange="document.getElementById(\'batch-btn-rm\').style.display=this.checked?\'inline-flex\':\'none\'" style="margin-right:4px">显示直接删除选项</label>';
+
+  document.getElementById('batch-progress-text').innerHTML = toggleHtml;
+
+  // 显示面板
+  document.getElementById('batch-modal').classList.add('active');
+}
+
+function closeBatchModal() {
+  document.getElementById('batch-modal').classList.remove('active');
+}
+
+function toggleSelectAll(checkbox) {
+  document.querySelectorAll('.batch-checkbox').forEach(function(cb) {
+    cb.checked = checkbox.checked;
+  });
+}
+
+/**
+ * 执行批量清理：串行逐项删除 + 实时进度
+ */
+async function executeBatchClean(mode) {
+  var items = getCleanableGreenItems();
+  // 收集勾选项
+  var selected = [];
+  document.querySelectorAll('.batch-checkbox').forEach(function(cb) {
+    if (cb.checked) {
+      var idx = parseInt(cb.dataset.batchIdx);
+      selected.push(items[idx]);
+    }
+  });
+
+  if (!selected.length) { alert('请至少选择一项'); return; }
+
+  var verb = mode === 'rm' ? '直接删除' : '移到废纸篓';
+  var total = selected.length;
+  var okCount = 0;
+  var failCount = 0;
+  var failItems = [];
+
+  // 禁用按钮
+  document.getElementById('batch-btn-trash').disabled = true;
+  document.getElementById('batch-btn-rm').disabled = true;
+  document.getElementById('batch-btn-cancel').disabled = true;
+
+  // 显示进度条
+  var progressBar = document.getElementById('batch-progress-bar');
+  var progressFill = document.getElementById('batch-progress-fill');
+  var progressDetail = document.getElementById('batch-progress-detail');
+  progressBar.style.display = 'block';
+
+  // 禁用所有复选框
+  document.querySelectorAll('.batch-checkbox').forEach(function(cb) { cb.disabled = true; });
+  document.getElementById('batch-select-all').disabled = true;
+
+  // 逐项串行删除
+  for (var i = 0; i < selected.length; i++) {
+    var it = selected[i];
+    var statusEl = document.getElementById('batch-status-' + it.idx);
+    var cardEl = document.getElementById('green-' + it.idx);
+
+    // 更新进度
+    progressFill.style.width = ((i / total) * 100) + '%';
+    progressDetail.textContent = verb + '中… ' + (i + 1) + '/' + total;
+
+    // 标记正在清理
+    if (statusEl) { statusEl.textContent = '清理中…'; statusEl.className = 'clean-item-status cleaning'; }
+    if (cardEl) { cardEl.classList.add('batch-cleaning'); }
+
+    try {
+      var res = await fetch(DELETE.endpoint, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({token: DELETE.token, paths: it.trash_paths, mode: mode})
+      });
+      var data = await res.json();
+
+      if (data.ok) {
+        okCount++;
+        if (statusEl) { statusEl.textContent = '✓'; statusEl.className = 'clean-item-status ok'; }
+        if (cardEl) { cardEl.classList.remove('batch-cleaning'); cardEl.classList.add('batch-ok', 'cleaned'); }
+      } else {
+        failCount++;
+        failItems.push(it.name + ': ' + (data.error || '未知错误'));
+        if (statusEl) { statusEl.textContent = '✗'; statusEl.className = 'clean-item-status fail'; }
+        if (cardEl) { cardEl.classList.remove('batch-cleaning'); cardEl.classList.add('batch-fail'); }
       }
-    });
+    } catch (e) {
+      failCount++;
+      failItems.push(it.name + ': ' + e);
+      if (statusEl) { statusEl.textContent = '✗'; statusEl.className = 'clean-item-status fail'; }
+      if (cardEl) { cardEl.classList.remove('batch-cleaning'); cardEl.classList.add('batch-fail'); }
+    }
+  }
+
+  // 进度条满
+  progressFill.style.width = '100%';
+
+  // 结果摘要
+  var summaryEl = document.getElementById('batch-result-summary');
+  if (failCount === 0) {
+    summaryEl.innerHTML = '<div class="result-summary success">&#10003; 全部完成！成功' + verb + ' ' + okCount + ' 项</div>';
+    progressDetail.textContent = verb + '完成！';
+  } else if (okCount > 0) {
+    summaryEl.innerHTML = '<div class="result-summary partial">&#9888; 部分完成：成功 ' + okCount + ' 项，失败 ' + failCount + ' 项' +
+      '<br><strong>失败原因：</strong><br>' + failItems.join('<br>') + '</div>';
+    progressDetail.textContent = '部分完成';
+  } else {
+    summaryEl.innerHTML = '<div class="result-summary failed">&#10007; 全部失败' +
+      '<br><strong>失败原因：</strong><br>' + failItems.join('<br>') + '</div>';
+    progressDetail.textContent = verb + '失败';
+  }
+
+  // 启用关闭按钮
+  document.getElementById('batch-btn-cancel').disabled = false;
+  document.getElementById('batch-btn-cancel').textContent = '关闭';
+
+  // 移除确认按钮
+  document.getElementById('batch-btn-trash').style.display = 'none';
+  document.getElementById('batch-btn-rm').style.display = 'none';
 }
 
 // Navigation
@@ -560,6 +855,11 @@ document.addEventListener('click', function(e){
     b.textContent = '已复制';
     setTimeout(function(){b.textContent='复制';},1500);
   });
+});
+
+// 点击遮罩关闭面板
+document.getElementById('batch-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeBatchModal();
 });
 
 // Mount - 带错误保护，防止任意渲染函数崩溃导致空白页

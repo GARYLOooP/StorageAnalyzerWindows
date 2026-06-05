@@ -20,10 +20,10 @@ description: >
 |------|--------|--------|------|
 | Step 1-2 | `scan.py` 脚本 | 只读扫描 12 组目标，算大小 | `%TEMP%\storage_scan.json` |
 | Step 3 | **Agent (你)** | 读参考→探查→三灯分级→写 JSON | `%TEMP%\storage_analysis.json` |
-| Step 4 | `build_report.py` 脚本 | 生成静态 HTML 报告到桌面 | `桌面\storage-report.html` |
-| Step 5 | **Agent (你)** | 自动打开报告 + 对话给摘要 | 浏览器预览 + 文字结论 |
+| Step 4 | `server.py` 脚本 | 启动本地服务 → 交互式网页 | `http://127.0.0.1:端口/` |
+| Step 5 | **Agent (你)** | 用 preview_url 打开 + 对话给摘要 | 浏览器预览 + 文字结论 |
 
-> **速览**：用户说"磁盘满了" → 跑 `scan.py --quick`(0.3s) 看概况 → 需要详情再跑全量(9s) → 按附录A模板写分析JSON → `build_report.py` 生成报告到桌面 → **自动打开浏览器预览** → 给用户一句话摘要。**全程只读扫描。**
+> **速览**：用户说"磁盘满了" → 跑 `scan.py --quick`(0.3s) 看概况 → 需要详情再跑全量(9s) → 按附录A模板写分析JSON → `server.py` 启动交互式服务 → **自动用 preview_url 打开** → 给用户一句话摘要。**全程只读扫描，交互式网页支持一键清理。**
 
 ---
 
@@ -98,22 +98,26 @@ python scripts/scan.py > %TEMP%\storage_scan.json
 - 🔴 **建议卸载** — 大应用/重复安装，正例：不再用的 `MobileAppEngine`，反例：`C:\Windows`
 - 其他 → 不展示（归蓝色）
 
-### Step 4 生成静态报告并自动打开
+### Step 4 启动交互式服务并自动打开
 
-```bash
-python scripts/build_report.py %TEMP%\storage_analysis.json %USERPROFILE%\Desktop\storage-report.html
-```
-
-生成独立 HTML 报告到桌面，**生成后必须立即用 `preview_url` 工具打开**。
-这是默认模式，报告为纯静态只读文件，含完整样式和交互（折叠卡片、锚点导航、命令复制）。
-
-**可选：服务模式**（需要网页上一键删除功能时）：
 ```bash
 python scripts/server.py %TEMP%\storage_analysis.json --no-browser
 ```
-服务起在 127.0.0.1:随机端口 + 随机 Token。Agent 用 `preview_url` 打开。
-🟢 可移到废纸篓/直接删除；🟡 可在资源管理器打开/移废纸篓（仅安全子路径）；
-🔴 在资源管理器打开（去卸载）。
+
+启动本地 HTTP 服务（127.0.0.1:随机端口 + 随机 Token），**启动后必须立即用 `preview_url` 打开**。
+
+这是默认模式，交互式网页支持：
+- 🟢 **一键清理全部** — 确认面板 + 逐项串行删除 + 进度反馈
+- 🟢 单项移到废纸篓 / 直接删除
+- 🟡 在资源管理器打开 / 安全子路径移废纸篓
+- 🔴 在资源管理器打开（去卸载）
+- 折叠卡片、锚点导航、命令复制
+
+**可选：静态报告模式**（仅查看，不能操作删除）：
+```bash
+python scripts/build_report.py %TEMP%\storage_analysis.json %USERPROFILE%\Desktop\storage-report.html
+```
+纯静态只读 HTML 文件，不含删除功能。仅在用户明确要求静态报告时使用。
 
 ### Step 5 摘要总结
 
@@ -369,3 +373,53 @@ python scripts/server.py %TEMP%\storage_analysis.json --no-browser
 | 不完美 JSON（amber 代替 yellow + red 缺必填字段） | ✅ 有警告横幅但正常渲染，数据不丢失 |
 | 极端最小 JSON（只有 system 字段，无 green/yellow/red） | ✅ 优雅降级，页面显示警告而非空白 |
 | 含 `\u2028`/`\u2029` 的 JSON | ✅ 正确转义为 `\u2028`/`\u2029`，不再触发 JS 语法错误 |
+
+### v2.2 — 一键清理绿色项（确认面板 + 串行删除 + 进度反馈） (2026-06-05)
+
+在交互式网页中增加"一键清理"功能：确认面板让用户勾选要清理的绿色项，确认后逐项串行删除并实时显示进度，失败项跳过继续，最后显示结果摘要。
+
+**交互流程**：
+
+```
+点击"一键清理全部 N 项 (约 X GB)" → 弹出确认面板
+  → 面板列出所有绿色项（复选框 + 名称 + 路径 + 大小）
+  → 用户勾选/取消 → 点击"确认移到废纸篓"或"直接删除"
+    → 逐项串行调用 /action API
+      → 每完成一项：更新进度条 + 状态标记（✓/✗）
+      → 某项失败？跳过继续，记录错误
+    → 全部完成：显示结果摘要（成功 N 项 / 失败 M 项 + 失败原因）
+  → 用户点"关闭"
+```
+
+**改动清单**：
+
+| 文件 | 类型 | 项目 | 说明 |
+|------|------|------|------|
+| `report_template.html` | 新增 | 确认面板 UI（modal） | 半透明遮罩 + 居中弹窗 + 复选框列表 + 全选/取消全选 |
+| `report_template.html` | 新增 | `openBatchModal()` | 收集可清理绿色项，构建确认面板列表 |
+| `report_template.html` | 新增 | `executeBatchClean(mode)` | async 串行逐项删除，实时更新进度条 + 状态标记 |
+| `report_template.html` | 新增 | 进度条 + 结果摘要 | 进度条动画 + 成功(绿)/部分成功(黄)/失败(红) 三色结果面板 |
+| `report_template.html` | 改进 | 绿色区醒目大按钮 | 原 `btn-sm` 改为 `btn-lg`，显示"🗑 一键清理全部 N 项 (约 X GB)" |
+| `report_template.html` | 新增 | 逐项状态 CSS | `batch-cleaning`(清理中)、`batch-ok`(✓)、`batch-fail`(✗) 三种卡片状态 |
+| `report_template.html` | 新增 | 点击遮罩关闭面板 | 点击 modal 外部遮罩区域自动关闭 |
+| `report_template.html` | 改进 | "直接删除"选项默认隐藏 | 需手动勾选"显示直接删除选项"才出现，防止误操作 |
+| `report_template.html` | 新增 | 静态模式提示 | 静态报告模式下点一键清理，提示用户使用 `server.py` 启动服务模式 |
+
+**关键设计决策**：
+
+1. **串行而非并行删除**：避免并发请求导致文件锁冲突或服务端过载
+2. **失败跳过而非中止**：某项权限不足时跳过继续，最后汇总失败列表
+3. **默认只显示"移到废纸篓"**：安全可逆；"直接删除"需额外勾选才可见
+4. **确认面板可取消勾选**：用户可以精确选择要清理哪些项，而非全有或全无
+
+### v2.2.1 — 修复 SHFileOperationW 类型错误 (2026-06-05)
+
+修复"一键清理"全部失败的 bug。根因：`_to_wide_null_terminated()` 返回 `bytes`（`encode("utf-16-le")`），但 `SHFILEOPSTRUCTW.pFrom` 声明为 `wintypes.LPCWSTR`，ctypes 期望 `str` 而非 `bytes`，导致每次移到废纸篓都报错 `unicode string or integer address expected instead of bytes instance`。
+
+**修复**：
+- `_to_wide_null_terminated()` 返回 `str` 而非 `bytes`
+- 注释同步更新：说明 ctypes 会自动将 Python `str` 转为 UTF-16
+- 移除冗余的 `import ctypes` 语句（该函数不再需要 ctypes）
+- `move_to_trash()` 增加错误码 120/124 回退逻辑：系统保护目录（如 `C:\Windows\SoftwareDistribution\Download`）或含被占用文件的目录无法移到回收站时，自动回退到 `hard_delete()`，避免清理失败
+- `ALLOWED_ROOTS` 新增 `C:\Program Files` 和 `C:\Program Files (x86)`：修复 🔴 项"在资源管理器打开"时 L7 root boundary 拦截（如 `C:\Program Files\Autodesk`）
+- `report_template.html` 修复 `onclick` 属性中 Windows 路径反斜杠丢失：`esc(p).replace(/'/g,"\\'")` 增加 `.replace(/\\/g,'\\\\')`，防止 JS 字符串中 `\P` 被当作无效转义序列吞掉反斜杠（如 `C:\ProgramData\Autodesk` 变成 `C:ProgramDataAutodesk`）

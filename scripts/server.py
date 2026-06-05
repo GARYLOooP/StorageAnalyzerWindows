@@ -49,6 +49,8 @@ OPEN_ALLOW: set = set()
 ALLOWED_ROOTS = [
     HOME,
     r"C:\ProgramData",
+    r"C:\Program Files",
+    r"C:\Program Files (x86)",
     r"C:\Windows\Temp",
     r"C:\Windows\Installer",
     r"C:\Windows\SoftwareDistribution",
@@ -85,16 +87,17 @@ def is_under_any(path: str, roots: list) -> bool:
 
 # ── Windows trash via Shell API ─────────────────────────────────────────
 
-def _to_wide_null_terminated(path: str) -> bytes:
-    """Convert a path to a double-null-terminated wide string for
-    SHFileOperationW. Uses \\\\?\\ prefix for paths > 260 chars."""
-    import ctypes
+def _to_wide_null_terminated(path: str) -> str:
+    """Return a double-null-terminated path string for SHFileOperationW.
 
+    ctypes automatically converts Python str to UTF-16 for LPCWSTR fields,
+    so we return str (not bytes). Uses \\\\?\\ prefix for paths > 260 chars.
+    """
     # CHANGED: long-path prefix
     if len(path) >= 260 and not path.startswith(r"\\?\\"):
         path = r"\\?\\" + os.path.abspath(path)
     # SHFileOperationW requires double null termination
-    return (path + "\x00\x00").encode("utf-16-le")
+    return path + "\x00\x00"
 
 
 def move_to_trash(path: str):
@@ -126,6 +129,14 @@ def move_to_trash(path: str):
     op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI
     rc = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
     if rc != 0:
+        # Codes 120 (access denied / invalid function) and 124 (invalid level)
+        # commonly occur for system-protected directories (e.g. C:\Windows\...
+        # or C:\ProgramData\...) or paths with in-use files. These cannot be
+        # moved to the recycle bin under normal user rights. Fall back to
+        # hard_delete so the cleanup still succeeds.
+        if rc in (120, 124):
+            hard_delete(path)
+            return
         raise OSError(f"SHFileOperation failed (code {rc})")
 
 
